@@ -1,43 +1,48 @@
 import express from "express";
 import fetch from "node-fetch";
 import bodyParser from "body-parser";
+import cors from "cors";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+// --- INITIALIZE EXPRESS APP ---
 const app = express();
 app.use(bodyParser.json());
 
-// --- CONFIG (from Render env vars) ---
+// --- CORS SETUP (✅ only one clean version) ---
+const allowedOrigin = process.env.CORS_ORIGIN || "*";
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests from your Shopify store domain(s)
+    if (!origin) return callback(null, true);
+    const allowed = allowedOrigin.split(",").map(o => o.trim());
+    if (allowed.includes(origin)) return callback(null, true);
+    return callback(new Error("CORS not allowed for this origin: " + origin));
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "X-MAAKKA-SECRET"],
+  credentials: false
+}));
+
+// --- ENVIRONMENT VARIABLES ---
 const SHOPIFY_STORE = process.env.SHOPIFY_STORE; // e.g. maakka.myshopify.com
 const SHOPIFY_ADMIN_API_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN;
-const FRONTEND_SECRET = process.env.FRONTEND_SECRET || ""; // must match client's header
-const SHOP_ORIGIN = process.env.SHOP_ORIGIN || `https://${SHOPIFY_STORE}`; // allowed origin
+const FRONTEND_SECRET = process.env.FRONTEND_SECRET || "maakka-secret-2025"; // must match your frontend header
 
-// Basic CORS: allow only your shop origin
-app.use((req, res, next) => {
-  const origin = req.get('origin');
-  if (origin && origin.startsWith(SHOP_ORIGIN)) {
-    res.header("Access-Control-Allow-Origin", origin);
-    res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type, X-MAAKKA-SECRET");
-  }
-  if (req.method === "OPTIONS") return res.sendStatus(204);
-  next();
-});
-
-// Secret-check middleware
+// --- SECURITY: VERIFY FRONTEND SECRET ---
 function checkSecret(req, res, next) {
-  const secret = req.get('X-MAAKKA-SECRET') || "";
+  const secret = req.get("X-MAAKKA-SECRET") || "";
   if (!FRONTEND_SECRET || secret !== FRONTEND_SECRET) {
     return res.status(403).json({ error: "Forbidden - invalid secret" });
   }
   next();
 }
 
-// Health
-app.get("/", (req, res) => res.send("MAAKKA Wishlist Sync Running ✅"));
+// --- HEALTH CHECK ---
+app.get("/", (req, res) => res.send("✅ MAAKKA Wishlist Sync Running"));
 
-// GET wishlist for a customer (protected)
+// --- GET WISHLIST FOR CUSTOMER ---
 app.get("/apps/wishlist-sync", checkSecret, async (req, res) => {
   try {
     const customerId = req.query.customer_id;
@@ -54,8 +59,8 @@ app.get("/apps/wishlist-sync", checkSecret, async (req, res) => {
     );
 
     if (!resp.ok) {
-      const t = await resp.text();
-      console.error("GET metafields error:", t);
+      const txt = await resp.text();
+      console.error("GET metafields error:", txt);
       return res.status(500).json({ error: "Failed to read metafields" });
     }
 
@@ -72,13 +77,12 @@ app.get("/apps/wishlist-sync", checkSecret, async (req, res) => {
   }
 });
 
-// POST update wishlist (protected)
+// --- UPDATE / CREATE WISHLIST FOR CUSTOMER ---
 app.post("/apps/wishlist-sync", checkSecret, async (req, res) => {
   try {
     const { customer_id, product_ids } = req.body;
     if (!customer_id) return res.status(400).json({ error: "Missing customer_id" });
 
-    // Create metafield payload
     const payload = {
       metafield: {
         namespace: "custom",
@@ -88,7 +92,6 @@ app.post("/apps/wishlist-sync", checkSecret, async (req, res) => {
       }
     };
 
-    // POST to create metafield (Shopify will create or return error if exists; simpler approach)
     const resp = await fetch(
       `https://${SHOPIFY_STORE}/admin/api/2025-01/customers/${customer_id}/metafields.json`,
       {
@@ -102,8 +105,8 @@ app.post("/apps/wishlist-sync", checkSecret, async (req, res) => {
     );
 
     if (!resp.ok) {
-      const text = await resp.text();
-      console.error("Create/update metafield error:", text);
+      const txt = await resp.text();
+      console.error("POST metafield error:", txt);
       return res.status(500).json({ error: "Failed to update metafield" });
     }
 
@@ -114,6 +117,6 @@ app.post("/apps/wishlist-sync", checkSecret, async (req, res) => {
   }
 });
 
+// --- START SERVER ---
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Wishlist Sync Server running on port ${PORT}`));
-
+app.listen(PORT, () => console.log(`🚀 Wishlist Sync Server running on port ${PORT}`));
