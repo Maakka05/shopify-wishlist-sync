@@ -6,15 +6,14 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-// --- INITIALIZE EXPRESS APP ---
+// --- INITIALIZE APP ---
 const app = express();
 app.use(bodyParser.json());
 
-// --- CORS SETUP (✅ only one clean version) ---
+// --- CORS (Fix for 2025 Shopify + Render) ---
 const allowedOrigin = process.env.CORS_ORIGIN || "*";
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests from your Shopify store domain(s)
     if (!origin) return callback(null, true);
     const allowed = allowedOrigin.split(",").map(o => o.trim());
     if (allowed.includes(origin)) return callback(null, true);
@@ -28,9 +27,9 @@ app.use(cors({
 // --- ENVIRONMENT VARIABLES ---
 const SHOPIFY_STORE = process.env.SHOPIFY_STORE; // e.g. maakka.myshopify.com
 const SHOPIFY_ADMIN_API_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN;
-const FRONTEND_SECRET = process.env.FRONTEND_SECRET || "maakka-secret-2025"; // must match your frontend header
+const FRONTEND_SECRET = process.env.FRONTEND_SECRET || "maakka-secret-2025"; // same as in Shopify frontend
 
-// --- SECURITY: VERIFY FRONTEND SECRET ---
+// --- MIDDLEWARE: SECRET CHECK ---
 function checkSecret(req, res, next) {
   const secret = req.get("X-MAAKKA-SECRET") || "";
   if (!FRONTEND_SECRET || secret !== FRONTEND_SECRET) {
@@ -39,10 +38,10 @@ function checkSecret(req, res, next) {
   next();
 }
 
-// --- HEALTH CHECK ---
+// --- HEALTH CHECK ROUTE ---
 app.get("/", (req, res) => res.send("✅ MAAKKA Wishlist Sync Running"));
 
-// --- GET WISHLIST FOR CUSTOMER ---
+// --- GET WISHLIST ---
 app.get("/apps/wishlist-sync", checkSecret, async (req, res) => {
   try {
     const customerId = req.query.customer_id;
@@ -77,7 +76,7 @@ app.get("/apps/wishlist-sync", checkSecret, async (req, res) => {
   }
 });
 
-// --- UPDATE / CREATE WISHLIST FOR CUSTOMER ---
+// --- UPDATE WISHLIST ---
 app.post("/apps/wishlist-sync", checkSecret, async (req, res) => {
   try {
     const { customer_id, product_ids } = req.body;
